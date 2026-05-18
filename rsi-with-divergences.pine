@@ -1,0 +1,110 @@
+//@version=6
+indicator(title="Relative Strength Index", shorttitle="RSI", format=format.price, precision=2)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Original RSI logic (unchanged)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ma(source, length, type) =>
+    switch type
+        "SMA" => ta.sma(source, length)
+        "Bollinger Bands" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "SMMA (RMA)" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        "VWMA" => ta.vwma(source, length)
+
+rsiLengthInput = input.int(14, minval=1, title="RSI Length", group="RSI Settings")
+rsiSourceInput = input.source(close, "Source", group="RSI Settings")
+maTypeInput = input.string("SMA", title="MA Type", options=["SMA", "Bollinger Bands", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group="MA Settings")
+maLengthInput = input.int(14, title="MA Length", group="MA Settings")
+bbMultInput = input.float(2.0, minval=0.001, maxval=50, title="BB StdDev", group="MA Settings")
+
+up = ta.rma(math.max(ta.change(rsiSourceInput), 0), rsiLengthInput)
+down = ta.rma(-math.min(ta.change(rsiSourceInput), 0), rsiLengthInput)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+
+rsiMA = ma(rsi, maLengthInput, maTypeInput)
+isBB = maTypeInput == "Bollinger Bands"
+
+plot(rsi, "RSI", color=#7E57C2)
+plot(rsiMA, "RSI-based MA", color=color.yellow)
+
+rsiUpperBand = hline(70, "RSI Upper Band", color=#787B86)
+hline(50, "RSI Middle Band", color=color.new(#787B86, 50))
+rsiLowerBand = hline(30, "RSI Lower Band", color=#787B86)
+fill(rsiUpperBand, rsiLowerBand, color=color.rgb(126, 87, 194, 90))
+
+bbUpperBand = plot(isBB ? rsiMA + ta.stdev(rsi, maLengthInput) * bbMultInput : na, title="Upper Bollinger Band", color=color.green)
+bbLowerBand = plot(isBB ? rsiMA - ta.stdev(rsi, maLengthInput) * bbMultInput : na, title="Lower Bollinger Band", color=color.green)
+fill(bbUpperBand, bbLowerBand, color=isBB ? color.new(color.green, 90) : na)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Added: Clipped OB/OS opacity gradient
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+weakTrans   = input.int(95, "Fill weak transparency", group="Divergence + Gradient")
+strongTrans = input.int(10, "Fill strong transparency", group="Divergence + Gradient")
+
+obLevel = 70.0
+osLevel = 30.0
+
+obPlot   = plot(obLevel, display=display.none)
+osPlot   = plot(osLevel, display=display.none)
+rsiAbove = plot(rsi > obLevel ? rsi : na, display=display.none)
+rsiBelow = plot(rsi < osLevel ? rsi : na, display=display.none)
+
+obT = math.max(0.0, math.min((rsi - obLevel) / math.max(1.0, 100.0 - obLevel), 1.0))
+osT = math.max(0.0, math.min((osLevel - rsi) / math.max(1.0, osLevel), 1.0))
+
+obTrans = math.round(weakTrans + (strongTrans - weakTrans) * obT)
+osTrans = math.round(weakTrans + (strongTrans - weakTrans) * osT)
+
+fill(rsiAbove, obPlot, color=color.new(color.lime, obTrans))
+fill(rsiBelow, osPlot, color=color.new(color.red,  osTrans))
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Added: Divergences (minimal, regular only)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+showDivs = input.bool(true, "Show Divergences", group="Divergence + Gradient")
+left     = input.int(5, "Pivot Left", group="Divergence + Gradient")
+right    = input.int(5, "Pivot Right", group="Divergence + Gradient")
+
+rsiPL = ta.pivotlow(rsi, left, right)
+rsiPH = ta.pivothigh(rsi, left, right)
+pBar  = bar_index - right
+
+var float prevRsiLow   = na
+var float prevPriceLow = na
+var int   prevLowBar   = na
+
+var float prevRsiHigh   = na
+var float prevPriceHigh = na
+var int   prevHighBar   = na
+
+if showDivs
+    if not na(rsiPL)
+        currRsiLow   = rsiPL
+        currPriceLow = low[right]
+        currBar      = pBar
+
+        if not na(prevRsiLow)
+            if currPriceLow < prevPriceLow and currRsiLow > prevRsiLow
+                line.new(prevLowBar, prevRsiLow, currBar, currRsiLow, xloc=xloc.bar_index, color=color.lime, width=2)
+                label.new(currBar, currRsiLow, "Bull", xloc=xloc.bar_index, style=label.style_label_up, color=color.lime, textcolor=color.white)
+
+        prevRsiLow   := currRsiLow
+        prevPriceLow := currPriceLow
+        prevLowBar   := currBar
+
+    if not na(rsiPH)
+        currRsiHigh   = rsiPH
+        currPriceHigh = high[right]
+        currBar       = pBar
+
+        if not na(prevRsiHigh)
+            if currPriceHigh > prevPriceHigh and currRsiHigh < prevRsiHigh
+                line.new(prevHighBar, prevRsiHigh, currBar, currRsiHigh, xloc=xloc.bar_index, color=color.red, width=2)
+                label.new(currBar, currRsiHigh, "Bear", xloc=xloc.bar_index, style=label.style_label_down, color=color.red, textcolor=color.white)
+
+        prevRsiHigh   := currRsiHigh
+        prevPriceHigh := currPriceHigh
+        prevHighBar   := currBar
