@@ -1,0 +1,255 @@
+//@version=6
+indicator("Auto-Detect Profile [Indices Update]", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=2000)
+
+// --- Group Definitions ---
+string G_MAIN   = "General Settings"
+string G_IDX    = "Index Tick Sizes"
+string G_FX     = "Forex Tick Sizes"
+string G_CRYPTO = "Crypto & Commodity Tick Sizes"
+string G_STYLE  = "Style & Colors"
+
+// --- General Inputs ---
+bool autoDetect  = input.bool(true, "Auto-Detect Settings", group=G_MAIN)
+float defaultTickInput = input.float(100.0, "Default Fallback Tick Size (Auto)", group=G_MAIN)
+int manualTicks  = input.int(100, "Manual Row Height", group=G_MAIN)
+float vaPct      = input.float(70.0, "Value Area %", minval=0, maxval=100, group=G_MAIN) / 100.0
+int profileWidth = input.int(50, "Histogram Width (Bars)", group=G_MAIN)
+
+// --- Index Inputs ---
+float jpyxTickInput   = input.float(1.0, "JPYX Tick Size (Auto)", group=G_IDX)
+float spxTickInput    = input.float(400.0, "SPX / ES Tick Size (Auto)", group=G_IDX)
+float nasTickInput    = input.float(150.0, "NAS100 / NQ Tick Size (Auto)", group=G_IDX)
+float us30TickInput   = input.float(2000.0, "US30 / YM Tick Size (Auto)", group=G_IDX)
+float us2000TickInput = input.float(100.0, "US2000 / RTY Tick Size (Auto)", group=G_IDX)
+float nikkeiTickInput = input.float(100.0, "Nikkei 225 Tick Size (Auto)", group=G_IDX)
+float uk100TickInput  = input.float(50.0, "UK100 / FTSE Tick Size (Auto)", group=G_IDX)
+float aus200TickInput = input.float(50.0, "AUS200 / ASX Tick Size (Auto)", group=G_IDX)
+float fra40TickInput  = input.float(50.0, "FRA40 / CAC Tick Size (Auto)", group=G_IDX)
+float eur50TickInput  = input.float(50.0, "EUR50 / STOXX50 Tick Size (Auto)", group=G_IDX)
+
+// --- Forex Inputs ---
+float jpyTickInput          = input.float(60.0, "Normal JPY Pairs Tick Size (Auto)", group=G_FX)
+float chfTickInput          = input.float(40.0, "CHF Crosses Tick Size (Auto)", group=G_FX) 
+float gbpEurCrossTickInput  = input.float(40.0, "GBP/EUR Crosses Tick Size (Auto)", group=G_FX)
+float forexDefaultTickInput = input.float(20.0, "Other Forex Tick Size (Auto)", group=G_FX)
+
+// --- Crypto & Commodity Inputs ---
+float goldTickInput          = input.float(5000.0, "Gold (XAU) Tick Size (Auto)", group=G_CRYPTO)
+float solTickInput           = input.float(50.0, "SOL Tick Size (Auto)", group=G_CRYPTO)
+float btcTickInput           = input.float(7000.0, "BTC Tick Size (>10k) (Auto)", group=G_CRYPTO)
+float ethTickInput           = input.float(300.0, "ETH Tick Size (>1k) (Auto)", group=G_CRYPTO)
+float cryptoDefaultTickInput = input.float(50.0, "Other Crypto Tick Size (Auto)", group=G_CRYPTO)
+
+// --- Style & Colors Inputs ---
+color vpColor    = input.color(color.new(color.gray, 80), "Outside VA Color", group=G_STYLE)
+color vaBoxColor = input.color(color.new(color.white, 75), "Inside VA Color", group=G_STYLE) 
+color pocColor   = input.color(color.red, "POC Color", group=G_STYLE)
+color vaColor    = input.color(color.new(color.red, 30), "VA/VAL Line Color", group=G_STYLE)
+color hlColor    = input.color(color.blue, "PDH/PDL Color", group=G_STYLE)
+
+// --- Logic: Advanced Instrument & Index Detection ---
+get_auto_tick_size() => 
+    float res = defaultTickInput 
+    string t = syminfo.ticker
+    
+    // 0. Detect Special Indices First (Priority over everything)
+    if str.contains(t, "JPYX") 
+        res := jpyxTickInput
+
+    // 1. Detect MAJOR US INDICES & GLOBAL INDICES (Priority)
+    else if str.contains(t, "SPX") or str.contains(t, "SP500") or str.contains(t, "US500") or str.contains(t, "ES")
+        res := spxTickInput
+    else if str.contains(t, "NAS100") or str.contains(t, "NDX") or str.contains(t, "US100") or str.contains(t, "NQ")
+        res := nasTickInput
+    else if str.contains(t, "US30") or str.contains(t, "DJI") or str.contains(t, "WS30") or str.contains(t, "YM") or str.contains(t, "DOW")
+        res := us30TickInput
+    else if str.contains(t, "US2000") or str.contains(t, "RTY") or str.contains(t, "RUT")
+        res := us2000TickInput
+    else if str.contains(t, "NI225") or str.contains(t, "JPN225") or str.contains(t, "NKY") or str.contains(t, "NIKKEI")
+        res := nikkeiTickInput
+    else if str.contains(t, "UK100") or str.contains(t, "FTSE") or str.contains(t, "UKX")
+        res := uk100TickInput
+    else if str.contains(t, "AUS200") or str.contains(t, "ASX") or str.contains(t, "XJO")
+        res := aus200TickInput
+    else if str.contains(t, "FRA40") or str.contains(t, "CAC") or str.contains(t, "FCE")
+        res := fra40TickInput
+    else if str.contains(t, "EUR50") or str.contains(t, "STOXX") or str.contains(t, "EU50") or str.contains(t, "SX5E")
+        res := eur50TickInput
+
+    // 2. Detect Forex
+    else if syminfo.type == "forex"
+        if str.contains(t, "JPY") // Normale JPY Paare
+            res := jpyTickInput
+        else if str.contains(t, "CHF") 
+            res := chfTickInput
+        else if (str.contains(t, "GBP") or str.contains(t, "EUR")) and (str.contains(t, "AUD") or str.contains(t, "NZD") or str.contains(t, "CAD")) 
+            res := gbpEurCrossTickInput
+        else
+            res := forexDefaultTickInput
+            
+    // 3. Detect Gold
+    else if str.contains(t, "XAU") or str.contains(t, "GOLD")
+        res := goldTickInput
+        
+    // 4. Detect Crypto
+    else if syminfo.type == "crypto" or str.contains(t, "USD") or str.contains(t, "USDT")
+        if str.contains(t, "SOL") 
+            res := solTickInput
+        else if close > 10000
+            res := btcTickInput // BTC
+        else if close > 1000
+            res := ethTickInput // ETH
+        else
+            res := cryptoDefaultTickInput  
+    res
+
+// --- Calculation Setup ---
+int rowSizeTicks = int(autoDetect ? get_auto_tick_size() : manualTicks) 
+float bucketStep = syminfo.mintick * rowSizeTicks
+
+// --- State Variables ---
+type barData
+    float h
+    float l
+    float v
+
+var map<float, float> currentDayMap = map.new<float, float>()
+var map<float, float> prevDayMap = map.new<float, float>()
+var float curDayHigh = 0.0
+var float curDayLow = 1e10
+var float prevDayHigh = na
+var float prevDayLow = na
+
+var int curDayStartTime = 0
+var int prevDayStartTime = 0
+
+// Reset Trigger
+bool stepChanged = ta.change(bucketStep) != 0
+
+// --- Dynamic Data Fetching ---
+bool isSmallTF = timeframe.in_seconds() <= 600
+
+barData[] lowerData = na
+
+if isSmallTF
+    lowerData := array.new<barData>()
+    array.push(lowerData, barData.new(high, low, volume))
+else
+    lowerData := request.security_lower_tf(syminfo.tickerid, "10", barData.new(high, low, volume))
+
+// --- Logic: Session Management ---
+if ta.change(time("D")) != 0 or stepChanged
+    if not stepChanged
+        prevDayMap := currentDayMap.copy()
+        prevDayHigh := curDayHigh
+        prevDayLow := curDayLow
+        prevDayStartTime := curDayStartTime
+    
+    currentDayMap.clear()
+    curDayHigh := 0.0
+    curDayLow := 1e10
+    curDayStartTime := time
+
+// --- Logic: Distribution ---
+if not na(lowerData)
+    for smallBar in lowerData
+        curDayHigh := math.max(curDayHigh, smallBar.h)
+        curDayLow := math.min(curDayLow, smallBar.l)
+        
+        float lowB = math.floor(smallBar.l / bucketStep) * bucketStep
+        float highB = math.floor(smallBar.h / bucketStep) * bucketStep
+        int steps = int(math.round((highB - lowB) / bucketStep))
+        
+        if steps <= 0
+            currentDayMap.put(lowB, nz(currentDayMap.get(lowB)) + smallBar.v)
+        else
+            float volPerB = smallBar.v / (steps + 1)
+            for i = 0 to steps
+                float lvl = lowB + (i * bucketStep)
+                currentDayMap.put(lvl, nz(currentDayMap.get(lvl)) + volPerB)
+
+// --- Drawing ---
+var box[] drawnBoxes = array.new_box()
+var line[] drawnLines = array.new_line()
+var label[] drawnLabels = array.new_label()
+
+if barstate.islast
+    // Cleanup
+    if array.size(drawnBoxes) > 0
+        for i = 0 to array.size(drawnBoxes) - 1
+            box.delete(array.get(drawnBoxes, i))
+        array.clear(drawnBoxes)
+    if array.size(drawnLines) > 0
+        for i = 0 to array.size(drawnLines) - 1
+            line.delete(array.get(drawnLines, i))
+        array.clear(drawnLines)
+    if array.size(drawnLabels) > 0
+        for i = 0 to array.size(drawnLabels) - 1
+            label.delete(array.get(drawnLabels, i))
+        array.clear(drawnLabels)
+
+    if prevDayMap.size() > 0 and prevDayStartTime > 0
+        float[] levels = prevDayMap.keys()
+        levels.sort()
+
+        float totalV = 0.0, maxV = 0.0, pocL = 0.0
+        int pocI = 0
+
+        for i = 0 to levels.size() - 1
+            float lvl = levels.get(i)
+            float v = prevDayMap.get(lvl)
+            totalV += v
+            if v > maxV
+                maxV := v
+                pocL := lvl
+                pocI := i
+
+        float targetV = totalV * vaPct
+        float curVaV = maxV
+        int upI = pocI, dnI = pocI
+        while curVaV < targetV and (upI < levels.size() - 1 or dnI > 0)
+            float uV = (upI < levels.size() - 1) ? prevDayMap.get(levels.get(upI + 1)) : 0.0
+            float dV = (dnI > 0) ? prevDayMap.get(levels.get(dnI - 1)) : 0.0
+            if uV >= dV
+                upI += 1, curVaV += uV
+            else
+                dnI -= 1, curVaV += dV
+        
+        float vah = levels.get(upI), val = levels.get(dnI)
+        
+        int timeStep = int(math.max(timeframe.in_seconds() * 1000, 60000))
+        int lx = time + (5 * timeStep)
+
+        // Boxes Loop
+        for lvl in levels
+            float vol = prevDayMap.get(lvl)
+            int bLenTime = int(math.round((vol / maxV) * profileWidth)) * timeStep
+            
+            if bLenTime > 0
+                float t = math.min(lvl + bucketStep, prevDayHigh)
+                float b = math.max(lvl, prevDayLow)
+                
+                // Determine if this block is within the Value Area
+                bool isInVA = lvl >= val and lvl <= vah
+                color finalColor = isInVA ? vaBoxColor : vpColor
+                
+                if t > b
+                    array.push(drawnBoxes, box.new(prevDayStartTime, t, prevDayStartTime + bLenTime, b, border_color=finalColor, bgcolor=finalColor, xloc=xloc.bar_time))
+
+        // Levels & Labels
+        array.push(drawnLines, line.new(prevDayStartTime, pocL, time, pocL, color=pocColor, width=2, xloc=xloc.bar_time, extend=extend.right))
+        array.push(drawnLabels, label.new(lx, pocL, "Previous POC", style=label.style_none, textcolor=pocColor, xloc=xloc.bar_time))
+
+        array.push(drawnLines, line.new(prevDayStartTime, vah, time, vah, color=vaColor, xloc=xloc.bar_time, extend=extend.right))
+        array.push(drawnLabels, label.new(lx, vah, "VAH", style=label.style_none, textcolor=vaColor, xloc=xloc.bar_time))
+
+        array.push(drawnLines, line.new(prevDayStartTime, val, time, val, color=vaColor, xloc=xloc.bar_time, extend=extend.right))
+        array.push(drawnLabels, label.new(lx, val, "VAL", style=label.style_none, textcolor=vaColor, xloc=xloc.bar_time))
+
+        if not na(prevDayHigh)
+            array.push(drawnLines, line.new(prevDayStartTime, prevDayHigh, time, prevDayHigh, color=hlColor, width=2, xloc=xloc.bar_time, extend=extend.right))
+            array.push(drawnLabels, label.new(lx, prevDayHigh, "Previous Day High", style=label.style_none, textcolor=hlColor, xloc=xloc.bar_time))
+        
+        if not na(prevDayLow)
+            array.push(drawnLines, line.new(prevDayStartTime, prevDayLow, time, prevDayLow, color=hlColor, width=2, xloc=xloc.bar_time, extend=extend.right))
+            array.push(drawnLabels, label.new(lx, prevDayLow, "Previous Day Low", style=label.style_none, textcolor=hlColor, xloc=xloc.bar_time))
